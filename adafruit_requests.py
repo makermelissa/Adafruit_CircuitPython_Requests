@@ -446,7 +446,10 @@ class Session:
     def _send(socket, data):
         total_sent = 0
         while total_sent < len(data):
-            sent = socket.send(data[total_sent:])
+            try:
+                sent = socket.send(data[total_sent:])
+            except RuntimeError:
+                sent = 0
             if sent is None:
                 sent = len(data)
             if sent == 0:
@@ -532,12 +535,23 @@ class Session:
             self._last_response.close()
             self._last_response = None
 
+        ok = True
         socket = self._get_socket(host, port, proto, timeout=timeout)
         try:
             self._send_request(socket, host, method, path, headers, data, json)
-        except:
+        except RuntimeError:
             self._close_socket(socket)
-            raise
+            ok = False
+
+        if not ok:
+            print("Connection closed, trying one more time")
+            self._free_sockets()
+            socket = self._get_socket(host, port, proto, timeout=timeout)
+            try:
+                self._send_request(socket, host, method, path, headers, data, json)
+            except:
+                self._close_socket(socket)
+                raise
 
         resp = Response(socket, self)  # our response
         if "location" in resp.headers and 300 <= resp.status_code <= 399:
